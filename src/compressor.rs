@@ -1,12 +1,14 @@
 use anyhow::Result;
 use image::{imageops::FilterType::Gaussian, GenericImageView, Rgba};
 use libwebp_sys::WebPEncodeRGBA;
+use tracing::info;
 use std::path::Path;
 
 pub fn encode_webp(input_image: &[u8], width: u32, height: u32, quality: i32) -> Result<Vec<u8>> {
     unsafe {
         let mut out_buf = std::ptr::null_mut();
         let stride = width as i32 * 4;
+        info!("start encoding");
         let len = WebPEncodeRGBA(
             input_image.as_ptr(),
             width as i32,
