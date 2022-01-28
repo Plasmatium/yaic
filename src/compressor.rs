@@ -1,5 +1,5 @@
 use anyhow::Result;
-use image::{imageops::FilterType::Gaussian, GenericImageView, Rgba};
+use image::{imageops::FilterType::Gaussian, GenericImageView};
 use libwebp_sys::WebPEncodeRGBA;
 use tracing::info;
 use std::path::Path;
