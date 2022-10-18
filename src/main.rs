@@ -6,7 +6,7 @@ use handler::{HandlerConfig, Handler};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-    let h = Handler::new("/Users/jonnywong/Pictures/compressor-test/origin", "/Users/jonnywong/Pictures/compressor-test/dist", HandlerConfig::new());
+    let h = Handler::new("/Users/jonnywong/Pictures/test-compress/origin", "/Users/jonnywong/Pictures/test-compress/dist", HandlerConfig::new());
     h.run().await.unwrap();
 }
 

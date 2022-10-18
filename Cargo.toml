@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.53"
 futures = "0.3.19"
+glob = "0.3.0"
 image = "0.23.14"
 libwebp-sys = { version = "0.4.2", features = ["avx2", "sse41", "neon"] }
 num-complex = "0.4.0"
