@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf, self}, sync::Arc, collections::HashMap};
+use std::{path::{PathBuf}, sync::Arc, collections::HashMap};
 
 
 use pathdiff::diff_paths;
