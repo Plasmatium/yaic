@@ -87,7 +87,7 @@ async fn make_dir(output_path: &PathBuf, recorder: Arc<Mutex<HashMap<PathBuf, ()
 
 fn is_image(input_path: &PathBuf) -> bool {
     if let Some(ext) = input_path.extension() {
-        if let Some(ext_str) = ext.to_str() {
+        if let Some(ext_str) = ext.to_ascii_lowercase().to_str() {
             ["jpg", "jpeg", "png", "bmp", "webp"].contains(&ext_str)
         } else {
             false
