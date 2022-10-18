@@ -1,14 +1,17 @@
-use std::{path::{Path, PathBuf}};
+use std::{path::{Path, PathBuf, self}, sync::Arc, collections::HashMap};
 
-use futures::future::join_all;
 
-use tracing::{warn, info, error};
+use pathdiff::diff_paths;
+use tokio::{sync::{mpsc, Mutex}, fs::create_dir_all};
+use tracing::{warn, info, error, debug};
 
 use crate::compressor::compress;
 
 pub struct Handler {
     in_dir: String,
     out_dir: String,
+
+    #[allow(unused)]
     cfg: HandlerConfig,
 }
 
@@ -21,41 +24,76 @@ impl Handler {
         }
     }
 
+    pub fn get_output_path(&self, input: &PathBuf) -> Option<PathBuf> {
+        let path = diff_paths(input, &self.in_dir);
+        path.map(|diffs|{
+            PathBuf::from(&self.out_dir).join(diffs)
+        })
+    }
+
     pub async fn run(&self) -> anyhow::Result<()> {
-        let dirs = std::fs::read_dir(&self.in_dir)?;
-        let files: Vec<PathBuf> = dirs
-            .map(|p| p.map(|de| de.path()))
-            .collect::<Result<_, _>>()?;
-        let mut futs = vec![];
-        let count: i32 = files.into_iter().map(|pb| {
-            if let Some(stem) = pb.file_stem() {
-                let out_dir: &Path = self.out_dir.as_ref();
-                let mut fout = PathBuf::new();
-                fout.push(out_dir);
-                fout = fout.join(stem);
-                fout.set_extension("webp");
-                let fin = pb;
-                let fut = tokio::spawn(async move {
-                    let res = compress(fin, fout, 1.0).await;
-                    if let Err(e) = res {
-                        error!("failed to convert, err: {:?}", e);
-                    }
-                });
-                futs.push(fut);
-                1
-            } else {
-                warn!("ignoring path: {}", pb.display());
-                0
+        let pattern = [&self.in_dir, "**", "*"].join("/");
+        info!("searching on: {pattern}");
+        let files = glob::glob(&pattern)?.collect::<Result<Vec<_>, _>>()?;
+
+        let recorder = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = mpsc::channel(8);
+        let rx = Arc::new(Mutex::new(rx));
+        for input_path in files {
+            if input_path.is_dir() {
+                continue
             }
-        }).sum();
-        info!("dispatched: {count}");
-        let results = join_all(futs).await;
-        results.iter().for_each(|r| {
-            if let Err(e) = r {
-                error!("failed to convert, err: {:?}", e);
+            if !is_image(&input_path) {
+                warn!("not image, skipping: {input_path:?}");
+                continue
             }
-        });
+
+            let output_path = self.get_output_path(&input_path);
+            if output_path == None {
+                error!("cannot calculate output_path, input: {input_path:?}, base: {}", self.in_dir);
+                continue
+            }
+            let mut output_path = output_path.unwrap();
+            output_path.set_extension(".webp");
+            tx.send(()).await?;
+
+            let rx = rx.clone();
+            let recorder = recorder.clone();
+            tokio::spawn(async move {
+                info!("processing: {:?}", input_path);
+                make_dir(&output_path, recorder).await.unwrap();
+                let res = compress(input_path, output_path, 1.0).await;
+                if let Err(e) = res {
+                    error!("failed to convert, err: {:?}", e);
+                }
+                let mut rx = rx.lock().await;
+                rx.recv().await;
+                debug!("done");
+            });
+        }
         Ok(())
+    }
+}
+
+async fn make_dir(output_path: &PathBuf, recorder: Arc<Mutex<HashMap<PathBuf, ()>>>) -> tokio::io::Result<()> {
+    let dir = output_path.parent().unwrap();
+    let mut recorder = recorder.lock().await;
+    if let Some(_) = recorder.get(dir) {
+        return Ok(())
+    }
+    recorder.insert(dir.to_path_buf(), ());
+    create_dir_all(dir).await
+}
+
+fn is_image(input_path: &PathBuf) -> bool {
+    if let Some(ext) = input_path.extension() {
+        if let Some(ext_str) = ext.to_str() {
+            ["jpg", "jpeg", "png", "bmp", "webp"].contains(&ext_str)
+        } else {
+            false
+        }
+    } else {
+        false
     }
 }
 
@@ -69,11 +107,30 @@ impl HandlerConfig {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::canonicalize;
+
     use super::*;
 
     #[tokio::test]
     async fn test_run() {
         let h = Handler::new("/Users/jonnywong/Pictures/compressor-test/origin", "/Users/jonnywong/Pictures/compressor-test/dist", HandlerConfig::new());
         h.run().await.unwrap();
+    }
+
+    use glob::glob;
+    #[test]
+    fn test_glob() {
+        let p = "/Users/jonnywong/Pictures/test-compress/origin/**/*.txt";
+        // for entry in glob(p).expect("Failed to read glob pattern") {
+        //     match entry {
+        //         Ok(path) => println!("{:?}", path.display()),
+        //         Err(e) => println!("{:?}", e),
+        //     }
+        // }
+        let result: Result<Vec<_>, _> = glob(p).unwrap().collect();
+        let paths = result.unwrap();
+        let cp = canonicalize(&paths[10]).unwrap();
+        println!("{:?}", cp);
+        println!("{:?}", paths);
     }
 }
